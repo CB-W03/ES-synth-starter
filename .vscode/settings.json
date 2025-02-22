@@ -1,6 +1,7 @@
 {
     "files.associations": {
         ".fantomasignore": "ignore",
-        "bitset": "cpp"
+        "bitset": "cpp",
+        "random": "cpp"
     }
 }
