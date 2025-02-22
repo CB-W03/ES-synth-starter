@@ -55,23 +55,9 @@
     calculateStepSize(466.16),  // A#4
     calculateStepSize(493.88)   // B4
   };
+  volatile uint32_t currentStepSize;
 //Display driver object
 U8G2_SSD1305_128X32_ADAFRUIT_F_HW_I2C u8g2(U8G2_R0);
-
-volatile uint32_t currentStepSize;
-HardwareTimer sampleTimer(TIM1);
-
-struct{
-  std::bitset<32> inputs;
-} sysState;
-//funciton to update phase accumulator and set the analogue output voltage at each sample interval
-void sampleISR(){
-  static uint32_t phaseAcc = 0;
-  phaseAcc += currentStepSize;
-
-  int32_t Vout = (phaseAcc >> 24) - 128;
-  analogWrite(OUTR_PIN, Vout + 128); //keep DC offset at 1.65V
-}
 
 //Function to set outputs using key matrix
 void setOutMuxBit(const uint8_t bitIdx, const bool value) {
@@ -108,6 +94,7 @@ void setRow(uint8_t rowIdx){
 
 void setup() {
   // put your setup code here, to run once:
+
   //Set pin directions
   pinMode(RA0_PIN, OUTPUT);
   pinMode(RA1_PIN, OUTPUT);
@@ -135,10 +122,6 @@ void setup() {
   //Initialise UART
   Serial.begin(9600);
   Serial.println("Hello World");
-  sampleTimer.setOverflow(22000, HERTZ_FORMAT);
-  sampleTimer.attachInterrupt(sampleISR);
-  sampleTimer.resume();
-  //vTaskStartScheduler();
 }
 
 void loop() {
@@ -147,6 +130,7 @@ void loop() {
   static uint32_t count = 0;
 
   while (millis() < next);  //Wait for next interval
+
   next += interval;
   std::bitset<32> inputs;
   int lastPressed = -1;
@@ -169,7 +153,7 @@ void loop() {
   //Update display
   u8g2.clearBuffer();         // clear the internal memory
   u8g2.setFont(u8g2_font_ncenB08_tr); // choose a suitable font
-  u8g2.drawStr(2,10,"Helllo World!");  // write something to the internal memory
+  u8g2.drawStr(2,10,"Hello World!");  // write something to the internal memory
   u8g2.setCursor(2,20);
   u8g2.print(inputs.to_ulong(), HEX);
   if (lastPressed >= 0 && lastPressed < 12) {
@@ -180,6 +164,8 @@ void loop() {
     u8g2.print("None");
   }
   u8g2.sendBuffer();          // transfer internal memory to the display
+
   //Toggle LED
   digitalToggle(LED_BUILTIN);
+  
 }
