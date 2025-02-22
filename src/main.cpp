@@ -3,6 +3,7 @@
 #include <bitset>
 #include <cmath>
 #include <array>
+#include <STM32FreeRTOS.h>
 
 //Constants
   const uint32_t interval = 100; //Display update interval
@@ -56,6 +57,20 @@
     calculateStepSize(493.88)   // B4
   };
   volatile uint32_t currentStepSize;
+
+void sampleISR(){
+  static uint32_t phaseAcc = 0;
+  phaseAcc += currentStepSize;
+
+  int32_t Vout = (phaseAcc >> 24) - 128;
+  analogWrite(OUTR_PIN, Vout + 128);
+}
+HardwareTimer sampleTimer(TIM1);
+
+struct {
+  std::bitset<32> inputs;
+} sysState;
+int lastPressed = -1;
 //Display driver object
 U8G2_SSD1305_128X32_ADAFRUIT_F_HW_I2C u8g2(U8G2_R0);
 
@@ -92,9 +107,33 @@ void setRow(uint8_t rowIdx){
   digitalWrite(REN_PIN, HIGH);
 }
 
+void scanKeysTask(void * pvParameters){
+  const TickType_t xFrequency = 50/portTICK_PERIOD_MS;
+  TickType_t xLastWakeTime = xTaskGetTickCount();
+  while(1) {for(uint8_t row = 0; row < 3; row++){
+    vTaskDelayUntil(&xLastWakeTime, xFrequency);
+    setRow(row);
+    delayMicroseconds(3);
+    std::bitset<4> cols = readCols();
+    for(uint8_t col = 0; col < 4; col++){
+      sysState.inputs[col + row*4] = cols[col];
+      if(!cols[col]){
+        lastPressed = col + row*4;
+      }
+    }
+  }
+  if(lastPressed >= 0 && lastPressed < 12){
+    currentStepSize = stepSizes[lastPressed];
+  } else{
+    currentStepSize = 0;
+  }}
+}
+
 void setup() {
   // put your setup code here, to run once:
-
+  sampleTimer.setOverflow(22000, HERTZ_FORMAT);
+  sampleTimer.attachInterrupt(sampleISR);
+  sampleTimer.resume();
   //Set pin directions
   pinMode(RA0_PIN, OUTPUT);
   pinMode(RA1_PIN, OUTPUT);
@@ -122,8 +161,16 @@ void setup() {
   //Initialise UART
   Serial.begin(9600);
   Serial.println("Hello World");
+  TaskHandle_t scanKeysHandle = NULL;
+  xTaskCreate(
+    scanKeysTask, //function to implement the task
+    "scanKeys", //text name for the text
+    64, //stack size in words, not bytes
+    NULL, //parameter passed into the task
+    1, //task priority
+    &scanKeysHandle ); //pointer to store the task handle
+    vTaskStartScheduler();
 }
-
 void loop() {
   // put your main code here, to run repeatedly:
   static uint32_t next = millis();
@@ -132,30 +179,13 @@ void loop() {
   while (millis() < next);  //Wait for next interval
 
   next += interval;
-  std::bitset<32> inputs;
-  int lastPressed = -1;
-  for(uint8_t row = 0; row < 3; row++){
-    setRow(row);
-    delayMicroseconds(3);
-    std::bitset<4> cols = readCols();
-    for(uint8_t col = 0; col < 4; col++){
-      inputs[col + row*4] = cols[col];
-      if (!cols[col]){
-        lastPressed = col + row*4;
-      }
-    }
-  }
-  if (lastPressed >= 0 && lastPressed < 12) {
-    currentStepSize = stepSizes[lastPressed];
-  } else {
-    currentStepSize = 0;  // No key pressed
-  }
+  //scanKeysTask(NULL);
   //Update display
   u8g2.clearBuffer();         // clear the internal memory
   u8g2.setFont(u8g2_font_ncenB08_tr); // choose a suitable font
   u8g2.drawStr(2,10,"Hello World!");  // write something to the internal memory
   u8g2.setCursor(2,20);
-  u8g2.print(inputs.to_ulong(), HEX);
+  u8g2.print(sysState.inputs.to_ulong(), HEX);
   if (lastPressed >= 0 && lastPressed < 12) {
     u8g2.setCursor(2, 30);
     u8g2.print(noteNames[lastPressed]);  // Display note name
@@ -167,5 +197,5 @@ void loop() {
 
   //Toggle LED
   digitalToggle(LED_BUILTIN);
-  
+
 }
