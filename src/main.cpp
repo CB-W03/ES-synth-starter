@@ -110,23 +110,53 @@ void setRow(uint8_t rowIdx){
 void scanKeysTask(void * pvParameters){
   const TickType_t xFrequency = 50/portTICK_PERIOD_MS;
   TickType_t xLastWakeTime = xTaskGetTickCount();
-  while(1) {for(uint8_t row = 0; row < 3; row++){
-    vTaskDelayUntil(&xLastWakeTime, xFrequency);
-    setRow(row);
-    delayMicroseconds(3);
-    std::bitset<4> cols = readCols();
-    for(uint8_t col = 0; col < 4; col++){
-      sysState.inputs[col + row*4] = cols[col];
-      if(!cols[col]){
-        lastPressed = col + row*4;
+  while(1) {
+    lastPressed = -1;
+    for(uint8_t row = 0; row < 3; row++){
+      vTaskDelayUntil(&xLastWakeTime, xFrequency);
+      setRow(row);
+      delayMicroseconds(3);
+      std::bitset<4> cols = readCols();
+
+      for(uint8_t col = 0; col < 4; col++){
+        sysState.inputs[col + row*4] = cols[col];
+        if(!cols[col]){
+          lastPressed = col + row*4;
+        }
       }
     }
+    if(lastPressed >= 0 && lastPressed < 12){
+      currentStepSize = stepSizes[lastPressed];
+    } 
+    else{
+      currentStepSize = 0;
+    }
   }
-  if(lastPressed >= 0 && lastPressed < 12){
-    currentStepSize = stepSizes[lastPressed];
-  } else{
-    currentStepSize = 0;
-  }}
+}
+
+void displayUpdateTask(void * pvParameters){
+  const TickType_t xFrequency = 100/portTICK_PERIOD_MS;
+  TickType_t xLastWakeTime = xTaskGetTickCount();
+  while(1){
+    vTaskDelayUntil(&xLastWakeTime, xFrequency);
+
+    u8g2.clearBuffer();         // clear the internal memory
+    u8g2.setFont(u8g2_font_ncenB08_tr); // choose a suitable font
+    u8g2.drawStr(2,10,"Hello World!");  // write something to the internal memory
+    u8g2.setCursor(2,20);
+    u8g2.print(sysState.inputs.to_ulong(), HEX);
+    if (lastPressed >= 0 && lastPressed < 12) {
+      u8g2.setCursor(2, 30);
+      u8g2.print(noteNames[lastPressed]);  // Display note name
+    } else {
+      u8g2.setCursor(2, 30);
+      u8g2.print("None");
+    }
+    u8g2.sendBuffer(); 
+
+    //Toggle LED
+    digitalToggle(LED_BUILTIN);
+  }
 }
 
 void setup() {
@@ -167,35 +197,21 @@ void setup() {
     "scanKeys", //text name for the text
     64, //stack size in words, not bytes
     NULL, //parameter passed into the task
-    1, //task priority
+    2, //task priority
     &scanKeysHandle ); //pointer to store the task handle
-    vTaskStartScheduler();
+
+  TaskHandle_t displayUpdateHandle = NULL;
+  xTaskCreate(
+    displayUpdateTask,
+    "displayUpdate",
+    256, //larger stack size 
+    NULL,
+    1, // lower priority as 100ms instead of 50 ms
+    &displayUpdateHandle
+  );
+  vTaskStartScheduler();
 }
 void loop() {
-  // put your main code here, to run repeatedly:
-  static uint32_t next = millis();
-  static uint32_t count = 0;
-
-  while (millis() < next);  //Wait for next interval
-
-  next += interval;
-  //scanKeysTask(NULL);
-  //Update display
-  u8g2.clearBuffer();         // clear the internal memory
-  u8g2.setFont(u8g2_font_ncenB08_tr); // choose a suitable font
-  u8g2.drawStr(2,10,"Hello World!");  // write something to the internal memory
-  u8g2.setCursor(2,20);
-  u8g2.print(sysState.inputs.to_ulong(), HEX);
-  if (lastPressed >= 0 && lastPressed < 12) {
-    u8g2.setCursor(2, 30);
-    u8g2.print(noteNames[lastPressed]);  // Display note name
-  } else {
-    u8g2.setCursor(2, 30);
-    u8g2.print("None");
-  }
-  u8g2.sendBuffer();          // transfer internal memory to the display
-
-  //Toggle LED
-  digitalToggle(LED_BUILTIN);
+  
 
 }
