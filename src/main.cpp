@@ -69,6 +69,8 @@ HardwareTimer sampleTimer(TIM1);
 
 struct {
   std::bitset<32> inputs;
+  SemaphoreHandle_t mutex;
+  int rotationVariable;
 } sysState;
 int lastPressed = -1;
 //Display driver object
@@ -118,12 +120,14 @@ void scanKeysTask(void * pvParameters){
       delayMicroseconds(3);
       std::bitset<4> cols = readCols();
 
+      xSemaphoreTake(sysState.mutex, portMAX_DELAY);
       for(uint8_t col = 0; col < 4; col++){
         sysState.inputs[col + row*4] = cols[col];
         if(!cols[col]){
           lastPressed = col + row*4;
         }
       }
+      xSemaphoreGive(sysState.mutex);
     }
     if(lastPressed >= 0 && lastPressed < 12){
       currentStepSize = stepSizes[lastPressed];
@@ -144,13 +148,12 @@ void displayUpdateTask(void * pvParameters){
     u8g2.setFont(u8g2_font_ncenB08_tr); // choose a suitable font
     u8g2.drawStr(2,10,"Hello World!");  // write something to the internal memory
     u8g2.setCursor(2,20);
+    xSemaphoreTake(sysState.mutex, portMAX_DELAY);
     u8g2.print(sysState.inputs.to_ulong(), HEX);
+    xSemaphoreGive(sysState.mutex);
     if (lastPressed >= 0 && lastPressed < 12) {
       u8g2.setCursor(2, 30);
       u8g2.print(noteNames[lastPressed]);  // Display note name
-    } else {
-      u8g2.setCursor(2, 30);
-      u8g2.print("None");
     }
     u8g2.sendBuffer(); 
 
@@ -209,6 +212,8 @@ void setup() {
     1, // lower priority as 100ms instead of 50 ms
     &displayUpdateHandle
   );
+  
+  sysState.mutex = xSemaphoreCreateMutex();
   vTaskStartScheduler();
 }
 void loop() {
