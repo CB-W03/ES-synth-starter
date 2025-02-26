@@ -5,9 +5,6 @@
 #include <array>
 #include <STM32FreeRTOS.h>
 
-//Constants
-  const uint32_t interval = 100; //Display update interval
-
 //Pin definitions
   //Row select and enable
   const int RA0_PIN = D3;
