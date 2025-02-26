@@ -36,6 +36,11 @@
   const int HKOW_BIT = 5;
   const int HKOE_BIT = 6;
 
+  struct {
+    std::bitset<32> inputs;
+    SemaphoreHandle_t mutex;
+    int rotationVariable;
+  } sysState;
   const char* noteNames[12] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
   const uint32_t samplerate = 22000;
   constexpr uint32_t calculateStepSize(float frequency) {
@@ -63,15 +68,10 @@ void sampleISR(){
   phaseAcc += currentStepSize;
 
   int32_t Vout = (phaseAcc >> 24) - 128;
+  Vout = Vout >> (8 - sysState.rotationVariable);
   analogWrite(OUTR_PIN, Vout + 128);
 }
 HardwareTimer sampleTimer(TIM1);
-
-struct {
-  std::bitset<32> inputs;
-  SemaphoreHandle_t mutex;
-  int rotationVariable;
-} sysState;
 int lastPressed = -1;
 //Display driver object
 U8G2_SSD1305_128X32_ADAFRUIT_F_HW_I2C u8g2(U8G2_R0);
@@ -110,11 +110,13 @@ void setRow(uint8_t rowIdx){
 }
 
 void scanKeysTask(void * pvParameters){
-  const TickType_t xFrequency = 50/portTICK_PERIOD_MS;
+  const TickType_t xFrequency = 20/portTICK_PERIOD_MS;
   TickType_t xLastWakeTime = xTaskGetTickCount();
+  static int prevState = 0b00;
   while(1) {
+    int increment = 0;
     lastPressed = -1;
-    for(uint8_t row = 0; row < 3; row++){
+    for(uint8_t row = 0; row < 4; row++){
       vTaskDelayUntil(&xLastWakeTime, xFrequency);
       setRow(row);
       delayMicroseconds(3);
@@ -123,8 +125,10 @@ void scanKeysTask(void * pvParameters){
       xSemaphoreTake(sysState.mutex, portMAX_DELAY);
       for(uint8_t col = 0; col < 4; col++){
         sysState.inputs[col + row*4] = cols[col];
-        if(!cols[col]){
-          lastPressed = col + row*4;
+        if (row < 3){
+          if(!cols[col]){
+            lastPressed = col + row*4;
+          }
         }
       }
       xSemaphoreGive(sysState.mutex);
@@ -135,6 +139,15 @@ void scanKeysTask(void * pvParameters){
     else{
       currentStepSize = 0;
     }
+    xSemaphoreTake(sysState.mutex, portMAX_DELAY);
+    int currState = (sysState.inputs[1 + 3*4] << 1) | (sysState.inputs[0 + 3*4]);
+    if((prevState == 0b00 && currState == 0b01)) increment = 1;
+    if(prevState == 0b11 && currState == 0b10) increment = 1;
+    if(prevState == 0b01 && currState == 0b00) increment = -1;
+    if (prevState == 0b10 && currState == 0b11) increment = -1;
+    sysState.rotationVariable += increment;
+    xSemaphoreGive(sysState.mutex);
+    prevState = currState;
   }
 }
 
@@ -150,11 +163,10 @@ void displayUpdateTask(void * pvParameters){
     u8g2.setCursor(2,20);
     xSemaphoreTake(sysState.mutex, portMAX_DELAY);
     u8g2.print(sysState.inputs.to_ulong(), HEX);
+    u8g2.setCursor(2, 30);
+    u8g2.print("Knob: ");
+    u8g2.print(sysState.rotationVariable);
     xSemaphoreGive(sysState.mutex);
-    if (lastPressed >= 0 && lastPressed < 12) {
-      u8g2.setCursor(2, 30);
-      u8g2.print(noteNames[lastPressed]);  // Display note name
-    }
     u8g2.sendBuffer(); 
 
     //Toggle LED
