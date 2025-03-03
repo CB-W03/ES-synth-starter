@@ -62,16 +62,54 @@
 
 void sampleISR(){
   static uint32_t phaseAcc = 0;
-  phaseAcc += currentStepSize;
+  uint32_t localStepSize = __atomic_load_n(&currentStepSize, __ATOMIC_RELAXED);
+  phaseAcc += localStepSize;
 
   int32_t Vout = (phaseAcc >> 24) - 128;
-  Vout = Vout >> (8 - sysState.rotationVariable);
+  int rotationVariable = __atomic_load_n(&sysState.rotationVariable, __ATOMIC_RELAXED);
+  Vout = Vout >> (8 - rotationVariable);
   analogWrite(OUTR_PIN, Vout + 128);
 }
 HardwareTimer sampleTimer(TIM1);
 int lastPressed = -1;
 //Display driver object
 U8G2_SSD1305_128X32_ADAFRUIT_F_HW_I2C u8g2(U8G2_R0);
+
+class Knob {
+public:
+  Knob(int upperLimit, int lowerLimit) : _rotation(0), _upperLimit(upperLimit), _lowerLimit(lowerLimit), _previousState(0b00) {}
+
+  int getRotation() {
+    return __atomic_load_n(&_rotation, __ATOMIC_RELAXED);
+  }
+
+  void setLimits(int upperLimit, int lowerLimit){
+    _upperLimit = upperLimit;
+    _lowerLimit = lowerLimit;
+  }
+
+  void updateRotation(int inputA, int inputB){
+    int increment = 0;
+    int currentState = (inputB << 1) | inputA;
+    if(_previousState == 0b00 && currentState == 0b01) increment = 1;
+    if(_previousState == 0b11 && currentState == 0b10) increment = 1;
+    if(_previousState == 0b01 && currentState == 0b00) increment = -1;
+    if(_previousState == 0b10 && currentState == 0b11) increment = -1;
+
+    int newRotation = __atomic_load_n(&_rotation, __ATOMIC_RELAXED) + increment;
+    newRotation = constrain(newRotation, _lowerLimit, _upperLimit);
+
+    __atomic_store_n(&_rotation, newRotation, __ATOMIC_RELAXED);
+
+    _previousState = currentState;
+  }
+
+private:
+  int _rotation;
+  int _upperLimit;
+  int _lowerLimit;
+  int _previousState;
+};
 
 //Function to set outputs using key matrix
 void setOutMuxBit(const uint8_t bitIdx, const bool value) {
@@ -106,13 +144,14 @@ void setRow(uint8_t rowIdx){
   digitalWrite(REN_PIN, HIGH);
 }
 
+Knob knob(8, 0);
 void scanKeysTask(void * pvParameters){
   const TickType_t xFrequency = 20/portTICK_PERIOD_MS;
   TickType_t xLastWakeTime = xTaskGetTickCount();
-  static int prevState = 0b00;
   while(1) {
     int increment = 0;
     lastPressed = -1;
+    uint32_t localCurrentStepSize = 0;
     for(uint8_t row = 0; row < 4; row++){
       vTaskDelayUntil(&xLastWakeTime, xFrequency);
       setRow(row);
@@ -131,20 +170,23 @@ void scanKeysTask(void * pvParameters){
       xSemaphoreGive(sysState.mutex);
     }
     if(lastPressed >= 0 && lastPressed < 12){
-      currentStepSize = stepSizes[lastPressed];
+      localCurrentStepSize = stepSizes[lastPressed];
     } 
     else{
-      currentStepSize = 0;
+      localCurrentStepSize = 0;
     }
+
+    __atomic_store_n(&currentStepSize, localCurrentStepSize, __ATOMIC_RELAXED);
+
     xSemaphoreTake(sysState.mutex, portMAX_DELAY);
-    int currState = (sysState.inputs[1 + 3*4] << 1) | (sysState.inputs[0 + 3*4]);
-    if((prevState == 0b00 && currState == 0b01)) increment = 1;
-    if(prevState == 0b11 && currState == 0b10) increment = 1;
-    if(prevState == 0b01 && currState == 0b00) increment = -1;
-    if (prevState == 0b10 && currState == 0b11) increment = -1;
-    sysState.rotationVariable += increment;
+    int inputA = sysState.inputs[0 + 3*4];
+    int inputB = sysState.inputs[1 + 3*4];
     xSemaphoreGive(sysState.mutex);
-    prevState = currState;
+    knob.updateRotation(inputA, inputB);
+    int knobValue = knob.getRotation();
+
+    __atomic_store_n(&sysState.rotationVariable, knobValue, __ATOMIC_RELAXED);
+    
   }
 }
 
@@ -160,10 +202,11 @@ void displayUpdateTask(void * pvParameters){
     u8g2.setCursor(2,20);
     xSemaphoreTake(sysState.mutex, portMAX_DELAY);
     u8g2.print(sysState.inputs.to_ulong(), HEX);
+    xSemaphoreGive(sysState.mutex);
     u8g2.setCursor(2, 30);
     u8g2.print("Knob: ");
-    u8g2.print(sysState.rotationVariable);
-    xSemaphoreGive(sysState.mutex);
+    int displayRotation = __atomic_load_n(&sysState.rotationVariable, __ATOMIC_RELAXED);
+    u8g2.print(displayRotation);
     u8g2.sendBuffer(); 
 
     //Toggle LED
