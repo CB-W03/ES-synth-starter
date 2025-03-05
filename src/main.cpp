@@ -1,3 +1,14 @@
+#define SENDER // Uncomment this line for sender code
+#define RECEIVER // Uncomment this line for receiver code
+// #define DISABLE_THREADS // Uncomment this line to disable threading
+// #define DISABLE_ISRS // Uncomment this line to disable ISRs
+// # define TEST_SUITE // Uncomment this line to enable and run test suite
+#ifdef TEST_SUITE
+#define TEST_SCANKEYS
+#define TEST_DISPLAYUPDATE
+#define TEST_DECODE
+#endif
+
 #include <Arduino.h>
 #include <U8g2lib.h>
 #include <bitset>
@@ -76,6 +87,8 @@ void sampleISR(){
 HardwareTimer sampleTimer(TIM1);
 int lastPressed = -1;
 QueueHandle_t msgInQ;
+QueueHandle_t msgOutQ;
+SemaphoreHandle_t CAN_TX_Semaphore;
 //Display driver object
 U8G2_SSD1305_128X32_ADAFRUIT_F_HW_I2C u8g2(U8G2_R0);
 
@@ -170,14 +183,19 @@ void scanKeysTask(void * pvParameters){
         uint8_t keyIndex = col + row*4;
         bool keyPressed = !cols[col];
         if (keyPressed != previousKeyState[keyIndex]){
-          TX_Message[0] = keyPressed ? 'P' : 'R';
-          TX_Message[1] = 4;
-          TX_Message[2] = keyIndex;
-          TX_Message[3] = TX_Message[4] = TX_Message[5] = TX_Message[6] = TX_Message[7] = 0;
-
-          CAN_TX(0x123, TX_Message);
-
           previousKeyState[keyIndex] = keyPressed;
+
+          #ifdef SENDER //only senders can send key press/release messages
+
+            TX_Message[0] = keyPressed ? 'P' : 'R';
+            TX_Message[1] = 4; //Octave number (can be changed)
+            TX_Message[2] = keyIndex;
+            TX_Message[3] = TX_Message[4] = TX_Message[5] = TX_Message[6] = TX_Message[7] = 0;
+
+            xQueueSend(msgOutQ, TX_Message, portMAX_DELAY);
+
+          #endif
+
         }
         sysState.inputs[col + row*4] = cols[col];
         if (row < 3){
@@ -188,14 +206,18 @@ void scanKeysTask(void * pvParameters){
       }
       xSemaphoreGive(sysState.mutex);
     }
-    if(lastPressed >= 0 && lastPressed < 12){
-      localCurrentStepSize = stepSizes[lastPressed];
-    } 
-    else{
-      localCurrentStepSize = 0;
-    }
 
-    __atomic_store_n(&currentStepSize, localCurrentStepSize, __ATOMIC_RELAXED);
+    #ifndef SENDER //only receivers can generate sound
+      if(lastPressed >= 0 && lastPressed < 12){
+        localCurrentStepSize = stepSizes[lastPressed];
+      } 
+      else{
+        localCurrentStepSize = 0;
+      }
+
+      __atomic_store_n(&currentStepSize, localCurrentStepSize, __ATOMIC_RELAXED);
+
+    #endif
 
     xSemaphoreTake(sysState.mutex, portMAX_DELAY);
     int inputA = sysState.inputs[0 + 3*4];
@@ -229,9 +251,7 @@ void displayUpdateTask(void * pvParameters){
     u8g2.print("Volume: ");
     int displayRotation = __atomic_load_n(&sysState.rotationVariable, __ATOMIC_RELAXED);
     u8g2.print(displayRotation);
-    // while(CAN_CheckRXLevel()){
-    //   CAN_RX(ID, RX_Message);
-    // }
+
     xSemaphoreTake(sysState.mutex, portMAX_DELAY);
     u8g2.setCursor(66, 30);
     u8g2.print((char) sysState.RX_Message[0]);
@@ -253,28 +273,46 @@ void CAN_RX_ISR_(void){
 }
 
 void decodeTask(void * pvParameters){
-  int newStepSize;
-  uint8_t localRX_Message[8];
-  while(1){
-    xQueueReceive(msgInQ, localRX_Message, portMAX_DELAY);
+  #ifdef RECEIVER // only receivers can decode messages
+    int newStepSize;
+    uint8_t localRX_Message[8];
+    while(1){
+      xQueueReceive(msgInQ, localRX_Message, portMAX_DELAY);
 
-    xSemaphoreTake(sysState.mutex, portMAX_DELAY);
+      xSemaphoreTake(sysState.mutex, portMAX_DELAY);
 
-    memcpy(sysState.RX_Message, localRX_Message, sizeof(localRX_Message));
-    xSemaphoreGive(sysState.mutex);
+      memcpy(sysState.RX_Message, localRX_Message, sizeof(localRX_Message));
+      xSemaphoreGive(sysState.mutex);
 
-    char pressOrRelease = (char) sysState.RX_Message[0];
-    if (pressOrRelease == 'R'){
-      newStepSize = 0;
+      char pressOrRelease = (char) sysState.RX_Message[0];
+      if (pressOrRelease == 'R'){
+        newStepSize = 0;
+      }
+      else if(pressOrRelease == 'P'){
+        int keyIndex = sysState.RX_Message[2]; //note number
+        int octaveNumber = sysState.RX_Message[1];
+        newStepSize = stepSizes[keyIndex] >> (octaveNumber - 4);
+      }
+
+      __atomic_store_n(&currentStepSize, newStepSize, __ATOMIC_RELAXED);
     }
-    else if(pressOrRelease == 'P'){
-      int keyIndex = sysState.RX_Message[2]; //note number
-      newStepSize = stepSizes[keyIndex];
-      int octaveNumber = sysState.RX_Message[1];
-      newStepSize = newStepSize >> (octaveNumber - 4);
+
+  #endif
+}
+
+void CAN_TX_Task(void * pvParameters){
+  #ifdef SENDER
+    uint8_t msgOut[8];
+    while(1){
+      xQueueReceive(msgOutQ, msgOut, portMAX_DELAY);
+      xSemaphoreTake(CAN_TX_Semaphore, portMAX_DELAY);
+      CAN_TX(0x123, msgOut);
     }
-    __atomic_store_n(&currentStepSize, newStepSize, __ATOMIC_RELAXED);
-  }
+  #endif
+}
+
+void CAN_TX_ISR_(void){
+  xSemaphoreGiveFromISR(CAN_TX_Semaphore, NULL);
 }
 
 void setup() {
@@ -309,44 +347,77 @@ void setup() {
   //Initialise UART
   Serial.begin(9600);
   Serial.println("Hello World");
-  TaskHandle_t scanKeysHandle = NULL;
-  xTaskCreate(
-    scanKeysTask, //function to implement the task
-    "scanKeys", //text name for the text
-    128, //stack size in words, not bytes
-    NULL, //parameter passed into the task
-    2, //task priority
-    &scanKeysHandle //pointer to store the task handle
-  );
+  #ifndef DISABLE_THREADS
+    TaskHandle_t scanKeysHandle = NULL;
+    xTaskCreate(
+      scanKeysTask, //function to implement the task
+      "scanKeys", //text name for the text
+      128, //stack size in words, not bytes
+      NULL, //parameter passed into the task
+      2, //task priority
+      &scanKeysHandle //pointer to store the task handle
+    );
 
-  TaskHandle_t displayUpdateHandle = NULL;
-  xTaskCreate(
-    displayUpdateTask,
-    "displayUpdate",
-    256, //larger stack size 
-    NULL,
-    1, // lower priority as 100ms instead of 50 ms
-    &displayUpdateHandle
-  );
-  TaskHandle_t decodeHandle = NULL;
-  xTaskCreate(
-    decodeTask,
-    "decode",
-    128, 
-    NULL,
-    1,
-    &decodeHandle
-  );
-  
+    TaskHandle_t displayUpdateHandle = NULL;
+    xTaskCreate(
+      displayUpdateTask,
+      "displayUpdate",
+      256, //larger stack size 
+      NULL,
+      1, // lower priority as 100ms instead of 50 ms
+      &displayUpdateHandle
+    );
+
+    TaskHandle_t decodeHandle = NULL;
+    xTaskCreate(
+      decodeTask,
+      "decode",
+      128, 
+      NULL,
+      1,
+      &decodeHandle
+    );
+
+    TaskHandle_t CAN_TX_Handle = NULL;
+    xTaskCreate(
+      CAN_TX_Task,
+      "CAN_TX",
+      128,
+      NULL,
+      1,
+      &CAN_TX_Handle
+    );
+  #endif
   sysState.mutex = xSemaphoreCreateMutex();
   msgInQ = xQueueCreate(36, 8);
+  msgOutQ = xQueueCreate(36, 8);
+  CAN_TX_Semaphore = xSemaphoreCreateCounting(3, 3);
   CAN_Init(true);
   setCANFilter(0x123, 0x7ff);
-  CAN_RegisterRX_ISR(CAN_RX_ISR_);
+
+  #ifndef DISABLE_ISRS
+    CAN_RegisterRX_ISR(CAN_RX_ISR_);
+    CAN_RegisterTX_ISR(CAN_TX_ISR_);
+  #endif
   CAN_Start();
+
   vTaskStartScheduler();
+
+  #ifdef TEST_SCANKEYS
+    uint32_t startTime = micros();
+    for(int iter = 0; iter < 32; iter++){
+      scanKeysTask();
+    }
+    Serial.println(micros() - startTime);
+    while(1);
+  #endif
+
+  #ifdef TEST_DISPLAYUPDATE //implement method to test display update task
+  #endif
+
+  #ifdef TEST_DECODE 
+  #endif
 }
 void loop() {
-  
 
 }
