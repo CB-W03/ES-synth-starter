@@ -1,0 +1,41 @@
+Report Structure
+Your report should follow a clear and structured format to document both core and advanced features:
+
+1. Introduction
+
+Overview of the project.
+Purpose of the synthesiser.
+Brief description of core and advanced features.
+2. Core Functionality (From Labs 1 & 2)
+
+Waveform Generation (Sawtooth wave implementation).
+Input Handling (Key press detection, CAN bus communication).
+Output Handling (DAC/PWM for audio output, OLED display).
+Concurrency (Use of interrupts and threads).
+3. Advanced Features
+
+For each advanced feature:
+
+Description (What it does and why it improves the synthesiser).
+Implementation Details (Code structure, algorithms used).
+Real-Time Considerations (Ensuring it meets timing constraints).
+Hardware Utilization (How it efficiently uses microcontroller resources).
+4. Performance Analysis
+
+CPU Utilization (Total processing load and efficiency).
+Timing Analysis (Task execution times and worst-case execution time).
+Rate Monotonic Scheduling (Ensuring real-time deadlines are met).
+Synchronization & Data Protection (Shared resources and mutual exclusion methods).
+5. Testing & Validation
+
+Test Cases for Core and Advanced Features.
+Measured vs. Expected Performance.
+Bugs Found and Fixes.
+6. Conclusion & Future Work
+
+Summary of achievements.
+Potential improvements or additional features.
+7. References
+
+Datasheets, libraries, and any external resources used.
+This structure ensures clarity, demonstrates software engineering best practices, and covers all required documentation specifications

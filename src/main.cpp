@@ -52,6 +52,7 @@
     int rotationVariable;
     uint8_t RX_Message[8] = {0};
   } sysState;
+  std::bitset<12> activeKeys;
   const char* noteNames[12] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
   const uint32_t samplerate = 22000;
   constexpr uint32_t calculateStepSize(float frequency) {
@@ -75,14 +76,21 @@
   volatile uint32_t currentStepSize;
 
 void sampleISR(){
-  static uint32_t phaseAcc = 0;
-  uint32_t localStepSize = __atomic_load_n(&currentStepSize, __ATOMIC_RELAXED);
-  phaseAcc += localStepSize;
-
-  int32_t Vout = (phaseAcc >> 24) - 128;
+  static uint32_t phaseAcc[12] = {0};
+  //uint32_t localStepSize = __atomic_load_n(&currentStepSize, __ATOMIC_RELAXED);
+  //phaseAcc += localStepSize;
+  int32_t Vout = 0;
+  for(int i = 0; i < 12; i++){
+    if(activeKeys.test(i)){
+      phaseAcc[i] += stepSizes[i];
+      Vout += (phaseAcc[i] >> 24) - 128;
+    }
+  }
+  //int32_t Vout = (phaseAcc >> 24) - 128;
   int rotationVariable = __atomic_load_n(&sysState.rotationVariable, __ATOMIC_RELAXED);
   Vout = Vout >> (8 - rotationVariable);
-  analogWrite(OUTR_PIN, Vout + 128);
+  Vout = constrain(Vout + 128, 0, 255);
+  analogWrite(OUTR_PIN, Vout);
 }
 
 HardwareTimer sampleTimer(TIM1);
@@ -224,7 +232,10 @@ void scanKeysTask(void * pvParameters){
         sysState.inputs[col + row*4] = cols[col];
         if (row < 3){
           if(keyPressed){
-            lastPressed = col + row*4;
+            activeKeys.set(keyIndex);
+          }
+          else{
+            activeKeys.reset(keyIndex);
           }
         }
       }
@@ -311,8 +322,10 @@ void decodeTask(void * pvParameters){
       char pressOrRelease = (char) sysState.RX_Message[0];
       if (pressOrRelease == 'R'){
         newStepSize = 0;
+        activeKeys.reset(sysState.RX_Message[2]);
       }
       else if(pressOrRelease == 'P'){
+        activeKeys.set(sysState.RX_Message[2]);
         int keyIndex = sysState.RX_Message[2]; //note number
         int octaveNumber = sysState.RX_Message[1];
         newStepSize = stepSizes[keyIndex] >> (octaveNumber - 4);
