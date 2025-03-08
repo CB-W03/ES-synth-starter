@@ -2,7 +2,7 @@
 #define RECEIVER // Uncomment this line for receiver code
 // #define DISABLE_THREADS // Uncomment this line to disable threading
 // #define DISABLE_ISRS // Uncomment this line to disable ISRs
-// # define TEST_SUITE // Uncomment this line to enable and run test suite
+// #define TEST_SUITE // Uncomment this line to enable and run test suite
 #ifdef TEST_SUITE
 #define TEST_SCANKEYS
 #define TEST_DISPLAYUPDATE
@@ -84,6 +84,7 @@ void sampleISR(){
   Vout = Vout >> (8 - rotationVariable);
   analogWrite(OUTR_PIN, Vout + 128);
 }
+
 HardwareTimer sampleTimer(TIM1);
 int lastPressed = -1;
 QueueHandle_t msgInQ;
@@ -163,13 +164,36 @@ void setRow(uint8_t rowIdx){
 
 Knob knob(8, 0);
 void scanKeysTask(void * pvParameters){
+  //Remove task delay to prevent blocking
   const TickType_t xFrequency = 20/portTICK_PERIOD_MS;
   TickType_t xLastWakeTime = xTaskGetTickCount();
+
   static std::bitset<12> previousKeyState;
   uint32_t localCurrentStepSize = 0;
   uint8_t TX_Message[8] = {0};
+
   while(1) {
     vTaskDelayUntil(&xLastWakeTime, xFrequency);
+
+    // Simulate key presses for all 12 keys in the first three rows
+    // for(uint8_t keyIndex = 0; keyIndex < 12; keyIndex++){
+    //   bool keyPressed = true;
+    //   if(keyPressed != previousKeyState[keyIndex]){
+    //     previousKeyState[keyIndex] = keyPressed;
+
+    //     #ifdef SENDER 
+    //     TX_Message[0] = 'P';  // Always "Pressed"
+    //     TX_Message[1] = 4;  // Octave number (can be changed)
+    //     TX_Message[2] = keyIndex;
+    //     TX_Message[3] = TX_Message[4] = TX_Message[5] = TX_Message[6] = TX_Message[7] = 0;
+
+    //     // Send message without blocking
+    //     xQueueSend(msgOutQ, TX_Message, portMAX_DELAY);
+    //     #endif
+
+    //   }
+    // }
+    // break;
     lastPressed = -1;
 
     for(uint8_t row = 0; row < 4; row++){
@@ -347,6 +371,7 @@ void setup() {
   //Initialise UART
   Serial.begin(9600);
   Serial.println("Hello World");
+
   #ifndef DISABLE_THREADS
     TaskHandle_t scanKeysHandle = NULL;
     xTaskCreate(

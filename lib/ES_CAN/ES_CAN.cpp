@@ -1,3 +1,4 @@
+#include "stm32l4xx_hal.h"
 #include <stm32l4xx_hal_can.h>
 #include <stm32l4xx_hal_rcc.h>
 #include <stm32l4xx_hal_gpio.h>
@@ -63,7 +64,7 @@ void HAL_CAN_MspInit(CAN_HandleTypeDef* CAN_Handle) {
 }
 
 
-uint32_t CAN_Init(bool loopback=false) {
+uint32_t CAN_Init(bool loopback) {
   if (loopback)
     CAN_Handle.Init.Mode = CAN_MODE_LOOPBACK;
   return (uint32_t) HAL_CAN_Init(&CAN_Handle);
