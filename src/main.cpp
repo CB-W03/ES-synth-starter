@@ -182,26 +182,6 @@ void scanKeysTask(void * pvParameters){
 
   while(1) {
     vTaskDelayUntil(&xLastWakeTime, xFrequency);
-
-    // Simulate key presses for all 12 keys in the first three rows
-    // for(uint8_t keyIndex = 0; keyIndex < 12; keyIndex++){
-    //   bool keyPressed = true;
-    //   if(keyPressed != previousKeyState[keyIndex]){
-    //     previousKeyState[keyIndex] = keyPressed;
-
-    //     #ifdef SENDER 
-    //     TX_Message[0] = 'P';  // Always "Pressed"
-    //     TX_Message[1] = 4;  // Octave number (can be changed)
-    //     TX_Message[2] = keyIndex;
-    //     TX_Message[3] = TX_Message[4] = TX_Message[5] = TX_Message[6] = TX_Message[7] = 0;
-
-    //     // Send message without blocking
-    //     xQueueSend(msgOutQ, TX_Message, portMAX_DELAY);
-    //     #endif
-
-    //   }
-    // }
-    // break;
     lastPressed = -1;
 
     for(uint8_t row = 0; row < 4; row++){
