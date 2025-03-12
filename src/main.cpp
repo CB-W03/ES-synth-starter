@@ -1,12 +1,13 @@
 #define SENDER // Uncomment this line for sender code
 #define RECEIVER // Uncomment this line for receiver code
-// #define DISABLE_THREADS // Uncomment this line to disable threading
-// #define DISABLE_ISRS // Uncomment this line to disable ISRs
-// #define TEST_SUITE // Uncomment this line to enable and run test suite
-#ifdef TEST_SUITE
-#define TEST_SCANKEYS
-#define TEST_DISPLAYUPDATE
-#define TEST_DECODE
+// #define TEST_BUILD // Uncomment this line to enable and run test suite
+#ifdef TEST_BUILD
+// #define TEST_SCANKEYS // Uncomment to run test for scanKeys function
+// #define TEST_DISPLAYUPDATE // Uncomment to run test for displayUpdate function
+// #define TEST_DECODE // Uncomment to run test for decode function
+#define TEST_CANTX // Uncomment to run test for CAN_TX function
+#define DISABLE_THREADS
+//#define DISABLE_ISRS
 #endif
 
 #include <Arduino.h>
@@ -75,10 +76,11 @@
   };
   volatile uint32_t currentStepSize;
 
-void sampleISR(){
+void sampleISR(){ // change comments to implement polyphony
   static uint32_t phaseAcc[12] = {0};
-  //uint32_t localStepSize = __atomic_load_n(&currentStepSize, __ATOMIC_RELAXED);
-  //phaseAcc += localStepSize;
+  // static uint32_t phaseAcc = 0;
+  // uint32_t localStepSize = __atomic_load_n(&currentStepSize, __ATOMIC_RELAXED);
+  // phaseAcc += localStepSize;
   int32_t Vout = 0;
   for(int i = 0; i < 12; i++){
     if(activeKeys.test(i)){
@@ -86,11 +88,11 @@ void sampleISR(){
       Vout += (phaseAcc[i] >> 24) - 128;
     }
   }
-  //int32_t Vout = (phaseAcc >> 24) - 128;
+  // int32_t Vout = (phaseAcc >> 24) - 128;
   int rotationVariable = __atomic_load_n(&sysState.rotationVariable, __ATOMIC_RELAXED);
   Vout = Vout >> (8 - rotationVariable);
-  Vout = constrain(Vout + 128, 0, 255);
-  analogWrite(OUTR_PIN, Vout);
+  // Vout = constrain(Vout + 128, 0, 255);
+  analogWrite(OUTR_PIN, Vout + 128);
 }
 
 HardwareTimer sampleTimer(TIM1);
@@ -181,7 +183,9 @@ void scanKeysTask(void * pvParameters){
   uint8_t TX_Message[8] = {0};
 
   while(1) {
-    vTaskDelayUntil(&xLastWakeTime, xFrequency);
+    #ifndef TEST_SCANKEYS
+      vTaskDelayUntil(&xLastWakeTime, xFrequency);
+    #endif
     lastPressed = -1;
 
     for(uint8_t row = 0; row < 4; row++){
@@ -213,6 +217,7 @@ void scanKeysTask(void * pvParameters){
         if (row < 3){
           if(keyPressed){
             activeKeys.set(keyIndex);
+            //lastPressed = keyIndex;
           }
           else{
             activeKeys.reset(keyIndex);
@@ -243,6 +248,9 @@ void scanKeysTask(void * pvParameters){
 
     __atomic_store_n(&sysState.rotationVariable, knobValue, __ATOMIC_RELAXED);
     
+    #ifdef TEST_SCANKEYS
+      break;
+    #endif
   }
 }
 
@@ -251,7 +259,9 @@ void displayUpdateTask(void * pvParameters){
   TickType_t xLastWakeTime = xTaskGetTickCount();
   uint32_t ID;
   while(1){
-    vTaskDelayUntil(&xLastWakeTime, xFrequency);
+    #ifndef TEST_DISPLAYUPDATE
+      vTaskDelayUntil(&xLastWakeTime, xFrequency);
+    #endif
 
     u8g2.clearBuffer();         // clear the internal memory
     u8g2.setFont(u8g2_font_ncenB08_tr); // choose a suitable font
@@ -277,6 +287,10 @@ void displayUpdateTask(void * pvParameters){
 
     //Toggle LED
     digitalToggle(LED_BUILTIN);
+
+    #ifdef TEST_DISPLAYUPDATE
+      break;
+    #endif
   }
 }
 
@@ -292,7 +306,16 @@ void decodeTask(void * pvParameters){
     int newStepSize;
     uint8_t localRX_Message[8];
     while(1){
-      xQueueReceive(msgInQ, localRX_Message, portMAX_DELAY);
+      #ifndef TEST_DECODE
+        xQueueReceive(msgInQ, localRX_Message, portMAX_DELAY);
+      #endif
+
+      #ifdef TEST_DECODE
+        localRX_Message[0] = 'P';
+        localRX_Message[1] = 4;
+        localRX_Message[2] = 3;
+        localRX_Message[3] = 1;
+      #endif
 
       xSemaphoreTake(sysState.mutex, portMAX_DELAY);
 
@@ -312,6 +335,10 @@ void decodeTask(void * pvParameters){
       }
 
       __atomic_store_n(&currentStepSize, newStepSize, __ATOMIC_RELAXED);
+
+      #ifdef TEST_DECODE
+        break;
+      #endif
     }
 
   #endif
@@ -320,10 +347,26 @@ void decodeTask(void * pvParameters){
 void CAN_TX_Task(void * pvParameters){
   #ifdef SENDER
     uint8_t msgOut[8];
+
+    #ifdef TEST_CANTX
+      xSemaphoreGive(CAN_TX_Semaphore);
+    #endif
     while(1){
-      xQueueReceive(msgOutQ, msgOut, portMAX_DELAY);
+      #ifndef TEST_CANTX
+        xQueueReceive(msgOutQ, msgOut, portMAX_DELAY);
+      #endif
+
+      #ifdef TEST_CANTX
+        msgOut[0] = 'P';
+        msgOut[1] = 4;
+        msgOut[2] = 3;
+      #endif
       xSemaphoreTake(CAN_TX_Semaphore, portMAX_DELAY);
       CAN_TX(0x123, msgOut);
+
+      #ifdef TEST_CANTX
+        break;
+      #endif
     }
   #endif
 }
@@ -408,7 +451,7 @@ void setup() {
   #endif
   sysState.mutex = xSemaphoreCreateMutex();
   msgInQ = xQueueCreate(36, 8);
-  msgOutQ = xQueueCreate(36, 8);
+  msgOutQ = xQueueCreate(384, 8);
   CAN_TX_Semaphore = xSemaphoreCreateCounting(3, 3);
   CAN_Init(true);
   setCANFilter(0x123, 0x7ff);
@@ -419,22 +462,52 @@ void setup() {
   #endif
   CAN_Start();
 
-  vTaskStartScheduler();
 
   #ifdef TEST_SCANKEYS
     uint32_t startTime = micros();
     for(int iter = 0; iter < 32; iter++){
-      scanKeysTask();
+      scanKeysTask(NULL);
     }
+    Serial.print("Total time for scanKeys function: ");
     Serial.println(micros() - startTime);
     while(1);
   #endif
 
-  #ifdef TEST_DISPLAYUPDATE //implement method to test display update task
+  #ifdef TEST_DISPLAYUPDATE 
+    uint32_t startTime = micros();
+    for(int iter = 0; iter < 32; iter++){
+      displayUpdateTask(NULL);
+    }
+    Serial.print("Total time for displayUpdate function: ");
+    Serial.println(micros() - startTime);
+    while(1);
   #endif
 
   #ifdef TEST_DECODE 
+    uint32_t startTime = micros();
+    for (int iter = 0; iter < 32; iter++) {
+      decodeTask(nullptr);
+    }
+    Serial.print("Total time for decode function: ");
+    Serial.println(micros() - startTime);
+    while (1);
   #endif
+
+  #ifdef TEST_CANTX
+  uint8_t testMessage[8] = {'P', 4, 3, 0, 0, 0, 0, 0};
+  for(int i = 0; i < 32; i++){
+    xQueueSend(msgOutQ, testMessage, portMAX_DELAY);
+  }
+  uint32_t startTime = micros();
+  for(int iter = 0; iter < 32; iter++){
+    CAN_TX_Task(NULL);
+  }
+  Serial.print("Total time for CAN_TX function: ");
+  Serial.println(micros() - startTime);
+  while(1);
+  #endif
+
+  vTaskStartScheduler();
 }
 void loop() {
 

@@ -1,0 +1,12 @@
+For our implementaiton of the scanKeys (without polyphony) function the total time to execute 32 iterations is 2822 microseconds.
+Which translates to taking approximately 88.2 microseconds (3 s.f.) per execution of the function 
+which is within the range of the sanity check (50 - 100 microseconds)
+
+Our implementation of the displayUpdate function takes 512908 microseconds to execute 32 iterations
+This translates to approximately 16028 microseconds, or ~16 milliseconds whenever the function is executed
+
+The implementation of the decodeTask function takes 141 microseconds to be executed 32 times.
+Which means each function call takes approximately 4.41 microseconds (3 s.f.)
+
+CAN_TASK takes 27620 microseconds to execute 32 times
+meaning each function call takes approximately 863 microseconds
