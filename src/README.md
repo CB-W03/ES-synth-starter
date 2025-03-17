@@ -1,4 +1,6 @@
 # Coursework 2: Music Synthesizer
+
+Create markdonw files for each specific section in report then add links in main readme file for corresponding sections
 ## Advanced Features
 add information about advanced features and descriptions of how they're implemented
 
