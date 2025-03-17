@@ -1,13 +1,13 @@
 # Coursework 2: Music Synthesizer
-## Core Functionality
+## 1. Core Functionality
 
 
-## Advanced Features
+## 2. Advanced Features
 
 
-## 4. Performance Analysis
+## 3. Performance Analysis
 
-### 4.1 Timing Analysis
+### 3.1 Timing Analysis
 
 To ensure the synthesizer meets real-time constraints, we measured the execution times of key functions using microsecond-level precision. The results are as follows:
 
@@ -44,7 +44,7 @@ Potential optimizations include **reducing the display update rate** or **optimi
 
 ---
 
-### 4.2 CPU Utilization Analysis
+### 3.2 CPU Utilization Analysis
 
 Using the formula:  
 
@@ -71,4 +71,4 @@ where \( T_i \) is execution time and \( \tau_i \) is the initiation interval:
 
 
 
-## Testing & Validation
+## 4. Testing & Validation
