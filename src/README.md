@@ -1,9 +1,34 @@
 # Coursework 2: Music Synthesizer
-## 1. Core Functionality
+## Advanced Features
+add information about advanced features and descriptions of how they're implemented
 
+## Critical Instant Analysis
 
-## 2. Advanced Features
+dk how to do this part yet
 
+## System Architecture
+
+### Task Implementation
+
+The synthesizer operates using a combination of **interrupts** and **thread-based tasks** to ensure real-time responsiveness and efficient execution.
+
+| Task Name          | Implementation Method | Description |
+|--------------------|----------------------|-------------|
+| **scanKeysTask**   | Thread (FreeRTOS)    | Scans the keyboard matrix to detect key presses and releases. Runs every 20ms. |
+| **displayUpdateTask** | Thread (FreeRTOS) | Updates the OLED display every 100ms with the current note and volume. |
+| **decodeTask**     | Thread (FreeRTOS)    | Processes incoming CAN messages and updates the synthesizer state accordingly. |
+| **CAN_TX_Task**    | Thread (FreeRTOS)    | Handles sending key press/release messages over the CAN bus. |
+| **sampleISR**      | Interrupt (Timer ISR) | Generates the waveform output by updating the phase accumulator at 22kHz. |
+| **CAN_RX_ISR_**    | Interrupt (CAN ISR)  | Handles reception of CAN messages and passes them to the decode task. |
+| **CAN_TX_ISR_**    | Interrupt (CAN ISR)  | Signals completion of CAN transmission to allow sending new messages. |
+
+### Task Execution and Scheduling
+
+- **Threads**: Tasks are scheduled using FreeRTOS with predefined initiation intervals. Higher-frequency tasks, such as `scanKeysTask`, run more often than lower-priority tasks like `displayUpdateTask`.
+- **Interrupts**: The **sampleISR** function runs at a fixed **22kHz rate** to ensure continuous sound generation without blocking the main task execution.  
+- **Synchronization & Resource Management**: Shared resources such as `sysState` are protected using **mutexes** to prevent race conditions.
+
+This architecture ensures that real-time constraints are met while efficiently handling input, output, and communication.
 
 ## 3. Performance Analysis
 
@@ -69,6 +94,48 @@ where \( T_i \) is execution time and \( \tau_i \) is the initiation interval:
 
 ---
 
+## Data Management & Synchronisation
 
+To ensure reliable operation in a multi-threaded environment, the synthesizer shares several key data structures between tasks and uses **mutexes, atomic operations, and queues** for synchronization.
 
-## 4. Testing & Validation
+### Shared Data Structures and Access Methods
+
+| Shared Data Structure      | Description | Protection Method |
+|---------------------------|-------------|-------------------|
+| **sysState.inputs**       | Stores the current key matrix state. | **Mutex (`sysState.mutex`)** to prevent concurrent access issues. |
+| **sysState.rotationVariable** | Stores the current volume level from the rotary encoder. | **Atomic operations (`__atomic_load_n`, `__atomic_store_n`)** ensure thread-safe access. |
+| **sysState.RX_Message**   | Holds the most recent received CAN message. | **Mutex (`sysState.mutex`)** ensures updates do not interfere with reads. |
+| **activeKeys**            | Tracks which notes are currently active. | **Mutex (`sysState.mutex`)** to ensure updates are thread-safe. |
+| **currentStepSize**       | Determines the frequency of the generated waveform. | **Atomic operations** for safe concurrent access. |
+| **msgInQ** (Queue)        | Stores incoming CAN messages for processing. | **FreeRTOS queue (`xQueueSend`, `xQueueReceive`)** for thread-safe message passing. |
+| **msgOutQ** (Queue)       | Stores outgoing CAN messages to be sent. | **FreeRTOS queue (`xQueueSend`, `xQueueReceive`)** to prevent data loss. |
+| **CAN_TX_Semaphore**      | Controls CAN transmission availability. | **Semaphore (`xSemaphoreTake`, `xSemaphoreGive`)** ensures only one task sends at a time. |
+
+### Synchronization Techniques Used
+
+1. **Mutexes (`sysState.mutex`)**  
+   - Used to protect **sysState** variables from race conditions.
+   - Ensures that only one task accesses or modifies shared data at a time.
+
+2. **Atomic Operations (`__atomic_load_n`, `__atomic_store_n`)**  
+   - Used for **fast** and **safe access** to simple variables like `currentStepSize` and `rotationVariable`, avoiding the overhead of mutexes.
+
+3. **Queues (`msgInQ`, `msgOutQ`)**  
+   - Used for **safe inter-task communication** of CAN messages.
+   - Ensures message integrity without blocking tasks.
+
+4. **Semaphores (`CAN_TX_Semaphore`)**  
+   - Controls CAN message transmission to **prevent conflicts**.
+   - Ensures **only one message** is transmitted at a time.
+
+### Ensuring Data Consistency and Preventing Deadlocks
+
+- **Non-blocking access**: Queues and atomic operations minimize waiting times.
+- **Short critical sections**: Mutex-protected code is kept as brief as possible to reduce blocking delays.
+- **No circular dependencies**: Mutexes are only used where necessary, avoiding deadlocks.
+
+These techniques ensure the synthesizer operates **smoothly and efficiently**, even when handling concurrent key presses, display updates, and CAN communication.
+
+## Dependency Graph
+
+Add dependency graph for different tasks here and possibly a short description
