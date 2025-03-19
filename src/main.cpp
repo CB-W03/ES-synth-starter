@@ -9,7 +9,7 @@
   // #define TEST_CANTX
   // #define TEST_sampleISR
   // #define TEST_TX_ISR
-  // #define TEST_RX_ISR
+  #define TEST_RX_ISR
   // Optionally disable threads or ISRs for test:
   // #define DISABLE_THREADS
   // #define DISABLE_ISRS
@@ -838,13 +838,10 @@ void setup() {
 
   #ifdef TEST_RX_ISR
     uint8_t testMessage[8] = {'P', 4, 3, 0, 0, 0, 0, 0};
-    uint32_t recieveISR = 0;
     uint32_t startTime = micros();
-    xQueueSend(msgInQ, testMessage, portMAX_DELAY);
     for (int iter = 0; iter < 32; iter++) {
-      Serial.println("1.....");
       CAN_RX_ISR_();
-      }
+    }
     Serial.print("Total time for 32 RX ISRs: ");
     Serial.println(micros() - startTime);
     while (1);
