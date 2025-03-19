@@ -273,7 +273,7 @@ inline int8_t generateSample(uint32_t phase, int waveSel) {
 
 // -------------------- Note On/Off Functions --------------------
 void noteOn(int localKey, int baseOctave) {
-  // Combine the user's base octave with board position and the octave knob
+  // Combine the user’s base octave with board position and the octave knob
   int localOctaveKnob = __atomic_load_n(&sysState.octaveKnobVal, __ATOMIC_RELAXED);
   int effectiveOctave = baseOctave + position + localOctaveKnob;
 
@@ -301,20 +301,7 @@ void noteOff(int localKey) {
 void CAN_RX_ISR_(void) {
   uint8_t RX_Message_ISR[8];
   uint32_t ID;
-  #ifdef TEST_RX_ISR
-    // Use a test message in test mode
-    RX_Message_ISR[0] = 'P';
-    RX_Message_ISR[1] = 4;
-    RX_Message_ISR[2] = 3;
-    RX_Message_ISR[3] = 0;
-    RX_Message_ISR[4] = 0;
-    RX_Message_ISR[5] = 0;
-    RX_Message_ISR[6] = 0;
-    RX_Message_ISR[7] = 0;
-    ID = 0x123;
-  #else
-    CAN_RX(ID, RX_Message_ISR);
-  #endif
+  CAN_RX(ID, RX_Message_ISR);
   xQueueSendFromISR(msgInQ, RX_Message_ISR, NULL);
 }
 
@@ -425,7 +412,7 @@ void scanKeysTask(void * pvParameters) {
       int octB = row4cols.test(3) ? 1 : 0;
       octaveKnob.updateRotation(octA, octB);
       __atomic_store_n(&sysState.octaveKnobVal, octaveKnob.getRotation(), __ATOMIC_RELAXED);
-      // Example: Use joystick's Y-axis to pick the waveform
+      // Example: Use joystick’s Y-axis to pick the waveform
 
       static bool joystickTriggered = false;       // Indicates if a deflection has been processed
       static int currentWaveSel = __atomic_load_n(&sysState.waveformSel, __ATOMIC_RELAXED); // Latch current waveform
@@ -625,7 +612,7 @@ void decodeTask(void * pvParameters) {
           pressed[globalKey] = 1;
           xSemaphoreGive(pressedMutex);
 
-          // Combine the board's wave + octave knob
+          // Combine the board’s wave + octave knob
           int localOctKnob = __atomic_load_n(&sysState.octaveKnobVal, __ATOMIC_RELAXED);
           int effectiveOctave = baseOctave + senderPos + localOctKnob;
           int relOct = effectiveOctave - 4;
@@ -673,7 +660,7 @@ void sampleISR() {
   static uint32_t phaseAcc[KEY_SIZE] = {0};
   int32_t Vout = 0;
 
-  // Read the user's selected waveform and volume
+  // Read the user’s selected waveform and volume
   int localWave = __atomic_load_n(&sysState.waveformSel, __ATOMIC_RELAXED);
   int localVolume = __atomic_load_n(&sysState.volumeKnobVal, __ATOMIC_RELAXED);
 
@@ -850,10 +837,12 @@ void setup() {
   #endif
 
   #ifdef TEST_RX_ISR
-  uint32_t startTime = micros();
     uint8_t testMessage[8] = {'P', 4, 3, 0, 0, 0, 0, 0};
-    uint32_t testID = 0x123;
+    uint32_t recieveISR = 0;
+    uint32_t startTime = micros();
+    xQueueSend(msgInQ, testMessage, portMAX_DELAY);
     for (int iter = 0; iter < 32; iter++) {
+      Serial.println("1.....");
       CAN_RX_ISR_();
       }
     Serial.print("Total time for 32 RX ISRs: ");
